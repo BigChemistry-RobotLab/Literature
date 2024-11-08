@@ -1,6 +1,9 @@
 import bibtexparser
 import os
 from collections import defaultdict
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
 month = 'OCT'
 year = '2024'
@@ -66,23 +69,50 @@ for topic, entries in sorted_entries.items():
 def create_markdown_content(topic, entries):
     content = f"# Literature on {topic}\n\n"
     for entry in entries:
-        title = entry.get('title', 'No title')
-        author = entry.get('author', 'No author')
-        journal = entry.get('journal', 'No journal')
-        year = entry.get('year', 'No year')
-        abstract = entry.get('abstract', 'No abstract')
-        doi = entry.get('doi', 'No DOI')
-        url = entry.get('url', 'No URL')
-        keywords = entry.get('keywords', 'No keywords')
-        
-        content += f"## {title}\n"
-        content += f"**Authors:** {author}\n\n"
-        content += f"**Journal:** {journal} ({year})\n\n"
-        #content += f"**Abstract:** {abstract}\n\n"
-        #content += f"**Keywords:** {keywords}\n\n"
-        content += f"**DOI:** [{doi}]({url})\n\n"
-        content += "---\n\n"
+        # Extract relevant fields
+        authors = entry["author"].replace(" and ", "; ")
+        title = entry["title"]
+        journal = entry["journal"]
+        volume = entry.get("volume", "")
+        number = entry.get("number", "")
+        pages = entry.get("pages", "")
+        year = entry["year"]
+        publisher = entry.get("publisher", "")
+        url = entry["url"]
+        abstract = entry.get("abstract", "")
+
+        # Extract the two most important keywords from the abstract
+        abstract_keywords = extract_keywords(abstract, keywords, num_keywords=2)
+
+        # Format the volume and number
+        volume_number = f"**{volume}**" + (f"({number})" if number else "")
+
+        # Construct the Markdown citation
+        citation = f"[{title}]({url}). {authors}. *{journal}* {volume_number}, {pages}. {publisher}, {year}.\n*notes*\n  - Keywords: {', '.join(abstract_keywords)}\n* * * * * * * * * * *"
+        content += citation + "\n\n"
     return content
+
+def extract_keywords(text, topic_keywords, num_keywords=2):
+    # Combine the topic keywords and the text
+    combined_text = ' '.join(topic_keywords) + ' ' + text
+    
+    # Create a TF-IDF vectorizer
+    vectorizer = TfidfVectorizer(stop_words='english')
+    
+    # Fit and transform the combined text
+    tfidf_matrix = vectorizer.fit_transform([combined_text, text])
+    
+    # Calculate cosine similarity between the topic keywords and the text
+    cosine_similarities = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+    
+    # Get the feature names (words)
+    feature_names = vectorizer.get_feature_names_out()
+    
+    # Get the top N keywords based on TF-IDF scores
+    sorted_indices = np.argsort(tfidf_matrix[1].toarray()[0])[::-1]
+    top_keywords = [feature_names[i] for i in sorted_indices if feature_names[i] not in topic_keywords][:num_keywords]
+    
+    return top_keywords
 
 # Create markdown files for each topic
 for topic, entries in sorted_entries.items():
